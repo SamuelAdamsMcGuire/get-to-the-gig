@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SM — CODE CHECK</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{ background:#0d0d0f; color:#e8e4d8; min-height:100vh;
+    font-family:"Press Start 2P","Courier New",monospace;
+    display:flex; flex-direction:column; align-items:center; padding:22px 14px 40px;
+    background-image:repeating-linear-gradient(0deg, rgba(255,255,255,.03) 0 1px, transparent 1px 3px); }
+  h1{ font-size:14px; color:#ff2e88; margin:0 0 4px; text-align:center; letter-spacing:1px }
+  .sub{ font-size:8px; color:#9a958a; margin-bottom:22px; text-align:center; line-height:1.7 }
+  .box{ width:100%; max-width:420px; border:3px solid #e8e4d8; background:#000;
+        box-shadow:8px 8px 0 #ff2e88; padding:18px 14px }
+  label{ display:block; font-size:8px; color:#9a958a; margin-bottom:8px }
+  input{ width:100%; font-family:inherit; font-size:15px; text-align:center;
+    padding:14px 6px; background:#16161c; color:#f5d020; border:2px solid #3a3a44;
+    text-transform:uppercase; letter-spacing:1px }
+  input:focus{ outline:none; border-color:#f5d020 }
+  .verdict{ margin-top:16px; padding:16px 10px; text-align:center; font-size:12px; line-height:1.7 }
+  .ok{ background:rgba(125,255,125,.10); border:2px solid #7dff7d; color:#7dff7d }
+  .no{ background:rgba(255,46,136,.10); border:2px solid #ff2e88; color:#ff2e88 }
+  .idle{ color:#5a5a62; font-size:9px }
+  .note{ font-size:8px; color:#7a7680; margin-top:6px; line-height:1.8 }
+  .seen{ width:100%; max-width:420px; margin-top:18px; font-size:8px; color:#7a7680 }
+  .seen h2{ font-size:9px; color:#9a958a; margin:0 0 8px }
+  .seen div{ padding:5px 0; border-bottom:1px solid rgba(232,228,216,.08); color:#a8a49a }
+  button{ font-family:inherit; font-size:8px; background:none; border:1px solid #7a7680;
+    color:#7a7680; padding:7px 10px; margin-top:12px; cursor:pointer }
+</style>
+</head>
+<body>
+
+<h1>MERCH TABLE CODE CHECK</h1>
+<div class="sub">
+  GET TO THE GIG<br>
+  TYPE THE CODE OFF THEIR PHONE.<br>IT WILL TELL YOU WHICH NIGHT THEY PICKED.
+</div>
+
+<div class="box">
+  <label>THE CODE</label>
+  <input id="c" placeholder="SM-XXXX-XXXX-X" autocomplete="off" autocapitalize="characters" spellcheck="false">
+  <div id="v" class="verdict idle">WAITING</div>
+  <div class="note" id="n"></div>
+</div>
+
+<div class="seen">
+  <h2>REDEEMED AT THIS TABLE</h2>
+  <div id="list">NOTHING YET</div>
+  <button id="clear">CLEAR THIS LIST</button>
+</div>
+
+<script>
+/* The same checksum the game uses. This runs entirely in the browser, so the
+   page works on a static host and with no signal in a cellar. It proves the
+   code was made by the game; it cannot prove who earned it. */
+const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I O 0 1
+// the game never issues a code containing these, so neither do we
+const BANNED = ['88','28','43','18','14','HH','SS','KKK','NS','WP'];
+// the six nights, in the same order as the game
+const NIGHTS = [
+  'KARLSRUHE  26.11  ALTE HACKEREI',
+  'FRANKFURT  27.11  AU',
+  'KOELN      28.11  SONIC BALLROOM',
+  'BREMEN     03.12  MAGAZINKELLER',
+  'BERLIN     04.12  KOEPI AGH',
+  'HAMBURG    05.12  LOBUSCH',
+];
+
+function checkCode(raw){
+  const t = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if(t.length !== 11) return { ok:false, why:'THAT IS NOT THE RIGHT LENGTH' };
+  if(t.slice(0,2) !== 'SM') return { ok:false, why:'IT SHOULD START WITH SM' };
+  const body = t.slice(2, 10), check = t[10];
+  for(const ch of body + check)
+    if(ALPHA.indexOf(ch) < 0) return { ok:false, why:'THAT CHARACTER IS NOT IN OUR SET' };
+  let sum = 0;
+  for(const ch of body) sum += ALPHA.indexOf(ch);
+  if(ALPHA[sum % 32] !== check) return { ok:false, why:'THE CHECK CHARACTER IS WRONG' };
+  for(const bad of BANNED)
+    if(t.indexOf(bad) >= 0) return { ok:false, why:'WE DO NOT ISSUE CODES LIKE THAT' };
+  const ci = ALPHA.indexOf(body[0]);
+  return { ok:true, tidy:'SM-' + body.slice(0,4) + '-' + body.slice(4) + '-' + check,
+           night: (ci >= 0 && ci < 6) ? NIGHTS[ci] : null };
+}
+
+const KEY = 'sm_redeemed';
+function seen(){ try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch(e){ return []; } }
+function remember(code, night){
+  const all = seen();
+  if(all.some(r => r.code === code)) return false;
+  all.unshift({ code: code, night: night || '', when: new Date().toISOString().slice(0,16).replace('T',' ') });
+  try { localStorage.setItem(KEY, JSON.stringify(all.slice(0, 200))); } catch(e){}
+  return true;
+}
+function render(){
+  const all = seen();
+  document.getElementById('list').innerHTML = all.length
+    ? all.slice(0, 30).map(r => '<div>' + r.code + '  ' + (r.night ? r.night.split('  ')[0] : '-') + '  ' + r.when + '</div>').join('')
+    : 'NOTHING YET';
+}
+
+const inp = document.getElementById('c'), out = document.getElementById('v'), note = document.getElementById('n');
+inp.addEventListener('input', () => {
+  const t = inp.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if(t.length < 11){
+    out.className = 'verdict idle';
+    out.textContent = t.length ? 'KEEP GOING  ' + t.length + '/11' : 'WAITING';
+    note.textContent = '';
+    return;
+  }
+  const r = checkCode(inp.value);
+  if(!r.ok){
+    out.className = 'verdict no';
+    out.textContent = 'NOT ONE OF OURS';
+    note.textContent = r.why;
+    return;
+  }
+  const fresh = remember(r.tidy, r.night);
+  out.className = 'verdict ok';
+  out.textContent = fresh ? 'GOOD ONE. GIVE THEM SOMETHING.' : 'ALREADY REDEEMED HERE';
+  note.innerHTML = (r.night ? '<b style="color:#7fe0ff">' + r.night + '</b><br>' : 'NIGHT NOT PICKED<br>')
+                 + r.tidy + (fresh ? '' : ' — this table has had this code before');
+  render();
+});
+document.getElementById('clear').addEventListener('click', () => {
+  if(confirm('Clear the redeemed list on this device?')){
+    try { localStorage.removeItem(KEY); } catch(e){}
+    render();
+  }
+});
+render();
+inp.focus();
+</script>
+</body>
+</html>
