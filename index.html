@@ -3700,13 +3700,19 @@ function startRun(fresh){
     bossAt: HG.len - 168, bossDone: false,
     boss: null, beat: false, insideT: 0, knocks: 4, downedBy: false, ouch: 0,
     swing: 0, swingCool: 0, swings: 0, blocked: 0, blockTold: 0, shoved: 0,
-    flash:null, flashC:'#f5d020', flashT:0, shake: 0, cursor: 0,
+    flash:null, flashC:'#f5d020', flashT:0, shout:false, shake: 0, cursor: 0,
     rain: Array.from({length: 60}, ()=>({ x: rng()*W, y: rng()*H, s: 3 + rng()*3 })),
   };
   state = 'run'; msg = 0;
 }
 
-function runFlash(s, c){ hl.flash = s; hl.flashC = c || '#f5d020'; hl.flashT = 90; }
+function runFlash(s, c){ hl.flash = s; hl.flashC = c || '#f5d020'; hl.flashT = 90; hl.shout = false; }
+// What he actually says. Held four times as long as a normal flash, across the
+// middle of the screen, on a black panel, pulsing, with the screen kicked.
+function runShout(s, c){
+  hl.flash = s; hl.flashC = c || '#ff2e88'; hl.flashT = 200; hl.shout = true;
+  hl.shake = Math.max(hl.shake, 10);
+}
 function runHit(a, b){ return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y; }
 
 /* ---------------- the run ---------------- */
@@ -3897,7 +3903,7 @@ function startBoss(){
   p.boss = { x: p.bossAt + BOSS_STAND, home: p.bossAt + BOSS_STAND, y: HG.ground - 30, hp: BOSS_HP,
              state:'wait', t:0, face:1, bottles: [], clean: true, taunted: false };
   p.phase = 'boss';
-  runFlash('HEY ALTER, HAST DU EIN PROBLEM?', '#ff2e88');
+  runShout('HEY ALTER, HAST DU EIN PROBLEM?', '#ff2e88');
 }
 
 function updateBoss(jumpPressed, swingPressed){
@@ -4001,10 +4007,10 @@ function updateBoss(jumpPressed, swingPressed){
     if(b.hp <= 0){
       b.state = 'down'; b.t = 0;
       b.runT = 0;
-      runFlash('GEH WEITER.', '#7dff7d');
+      runShout('GEH WEITER.', '#7dff7d');
     } else {
       b.state = 'wait';
-      runFlash('NOCH EIN PROBLEM?', '#f5d020');
+      runShout('NOCH EIN PROBLEM?', '#f5d020');
     }
   } else if(reach && !dazed && b.hp > 0 && runHit(reach, bbox)){
     // he blocks it. you feel it. and you get told why, more than once.
@@ -4492,9 +4498,23 @@ function drawRunFlash(){
   const p = hl;
   if(p.flashT <= 0) return;
   ctx.globalAlpha = Math.min(1, p.flashT/24);
-  const ls = wrapFit(p.flash, W-24);
-  px(0, 200, W, 6 + ls.length*12, 'rgba(0,0,0,.66)');
-  ls.forEach((l,i)=>txtFit(l, W/2, 204+i*12, p.flashC, 'center', W-20));
+  if(p.shout){
+    const SZ = 14;
+    const ls = wrapFit(p.flash, 250, SZ);
+    const h = 12 + ls.length*19;
+    const y0 = 84;
+    px(6, y0-6, W-12, h, 'rgba(0,0,0,.9)');
+    px(6, y0-6, W-12, 2, p.flashC);
+    px(6, y0+h-8, W-12, 2, p.flashC);
+    px(6, y0-6, 2, h, p.flashC);
+    px(W-8, y0-6, 2, h, p.flashC);
+    const col = (tick % 18 < 9) ? '#ffffff' : p.flashC;
+    ls.forEach((l,i)=>txtFit(l, W/2, y0+2+i*19, col, 'center', W-24, SZ));
+  } else {
+    const ls = wrapFit(p.flash, W-24);
+    px(0, 200, W, 6 + ls.length*12, 'rgba(0,0,0,.66)');
+    ls.forEach((l,i)=>txtFit(l, W/2, 204+i*12, p.flashC, 'center', W-20));
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -7037,8 +7057,13 @@ function frame(){
   const inLoad = state === 'load' && ll && ll.phase === 'carry';
   const inRun  = state === 'run'  && hl && (hl.phase === 'go' || hl.phase === 'boss');
   const inAdv  = state === 'adv'  && ad && ad.phase === 'play';
-  setPad(inPit || inVan || inLoad || inRun || inAdv,
-         inPit ? 'LIFT' : inVan ? 'GAS' : inLoad ? 'DOWN' : inAdv ? 'TALK' : 'RUN');
+  // Typing initials needs all four directions: up and down change the letter,
+  // left and right move between the three slots. The three button pad cannot
+  // do that, because in vertical mode its two buttons send both axes at once.
+  const inIni  = state === 'initials' && ini && ini.step !== 'city';
+  setPad(inPit || inVan || inLoad || inRun || inAdv || inIni,
+         inPit ? 'LIFT' : inVan ? 'GAS' : inLoad ? 'DOWN' : inAdv ? 'TALK'
+               : inIni ? 'NEXT' : 'RUN');
   if(state==='title') drawTitle();
   else if(state==='select') drawSelect();
   else if(state==='map') drawMap();
