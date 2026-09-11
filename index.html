@@ -457,6 +457,7 @@ function goodwillNote(){
 function load(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); }catch(e){ return d; } }
 function save(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 let merchCode = load('gttg_code', null);
+let poolOpen = load('gttg_pool', false);
 
 /* ---- the merch code ----
    Shown only after finishing the tour a second time, as Allen.
@@ -2721,6 +2722,8 @@ function updatePit(){
 
 function pitEnd(){
   const p = pl, g = GIGS[gigIdx];
+  // Eight caught unlocks the pool on the day off. Silent until it happens.
+  if(p.caught >= 8 && !poolOpen){ poolOpen = true; save('gttg_pool', true); }
   const total = p.caught + p.lifted;
   const bad = p.dropped + p.trampled;
   p.grade = p.carried ? 'CARRIED OUT'
@@ -5447,8 +5450,15 @@ const DAYS_OFF = [
            'WHERE DUDEL AND THE BOB FAMILY ARE WAITING.'] },
 ];
 
-function daysOffStep(act){
+function daysOffStep(act, D){
   dof.t++;
+  // The empty pool card is the way in, once somebody has earned it in Koeln.
+  // Nothing on this card mentions it until then.
+  if(D && poolOpen && dof.i === 2 && dof.t > 22){
+    startSkate(); state = 'pool'; msg = 0;
+    Song.play('chip8', { loop: true, rate: 1.0 });
+    return;
+  }
   if(act && dof.t > 22){
     dof.i++; dof.t = 0;
     if(dof.i >= DAYS_OFF.length){ state = 'map'; msg = 0; }
@@ -5472,6 +5482,10 @@ function drawDaysOff(){
   txtFit(beat.top, 6, 4, '#ff2e88', 'left', W-70);
   txtFit((p.i+1) + '/' + DAYS_OFF.length, W-6, 4, '#7a7a82', 'right', 40);
   if(p.t > 22) txtFit(tick%54<34 ? 'PRESS SPACE' : '', W/2, y + 1, '#ff2e88', 'center', 100);
+  // Only on the pool card, and only once somebody has earned it in Koeln.
+  // Everyone else sees exactly what they saw before.
+  if(poolOpen && p.i === 2 && p.t > 22)
+    txtFit(tick%60<40 ? 'DOWN TO SKATE IT' : '', W/2, by - 12, '#7dff7d', 'center', 140);
 }
 
 /* ============================================================
@@ -6215,6 +6229,338 @@ function advStep(act, L, R, U, D){
     } else if(act){ advFinish(); msg = 0; }
     return;
   }
+}
+
+
+/* ============================================================
+   THE POOL - an empty pool off the long cut, 01.12
+
+   Not on the itinerary. It opens once somebody has caught eight
+   stage divers in Koeln, and then it stays open. The bowl is a
+   pendulum: pos runs -1..1 across the transition, 0 is the flat,
+   +/-1 is the coping. Pumping the way you are already going is
+   what gets you up the wall.
+   ============================================================ */
+
+const SK_G     = 0.00042;
+const SK_DRAG  = 0.9982;
+const SK_PUMP  = 1.013;
+const SK_PUSH  = 0.00020;
+const SK_LIP   = 0.995;
+const SK_POP   = 0.0125;
+const SK_CLEAR = 14;
+const SK_LATE  = 9;
+const SK_SPIN0 = 0.060;
+const SK_SPINA = 0.0110;
+const SK_SPINMX= 0.320;
+const SK_FLIPR = 0.160;
+const SK_RUN   = 75*60;
+
+let sk = null;
+
+function skateWho(){ return hero.id === 'ACTION' ? 'ACTION' : 'MIKEY'; }
+
+function startSkate(){
+  sk = {
+    phase:'brief', t:0,
+    pos:0, vel:0.009, best:0,
+    air:null, rock:null, bail:0, bailFrom:0, tumble:0,
+    score:0, combo:0, tricks:0, bails:0,
+    lastTrick:null, repeat:0, bigName:null, bigPts:0, bestCombo:0,
+    flash:null, flashC:'#f5d020', flashT:0, shake:0,
+    actBuf:0, upBuf:0, good:false,
+    lipT:99, lipSide:1, lipSpeed:0,
+    high: load('gttg_pool_best', 0), newHigh:false,
+  };
+}
+
+function skFlash(t,c){ sk.flash=t; sk.flashC=c||'#f5d020'; sk.flashT=80; }
+
+function skScore(n,name){
+  const same = name === sk.lastTrick;
+  sk.repeat = same ? sk.repeat+1 : 0;
+  const fade = Math.pow(0.5, sk.repeat);
+  if(same) sk.combo = 0; else sk.combo++;
+  const mult = Math.min(3, 1 + Math.max(0, sk.combo-1)*0.15);
+  const got = Math.max(5, Math.round(n*fade*mult));
+  sk.score += got; sk.tricks++;
+  if(got > sk.bigPts){ sk.bigPts = got; sk.bigName = name; }
+  if(sk.combo > sk.bestCombo) sk.bestCombo = sk.combo;
+  sk.lastTrick = name;
+  skFlash(name + '   +' + got + (sk.repeat ? '   SAME AGAIN' : '')
+          + (!same && sk.combo > 1 ? '   x' + mult.toFixed(2) : ''),
+          same ? '#8a8690' : '#7dff7d');
+}
+
+function skBail(why){
+  sk.bails++; sk.combo = 0; sk.lastTrick = null; sk.repeat = 0;
+  sk.bail = 46; sk.shake = 8; sk.bailFrom = sk.pos; sk.tumble = 0; sk.vel = 0;
+  skFlash(why, '#ff2e88');
+}
+
+function updateSkate(act, U){
+  const p = sk;
+  if(p.flashT > 0) p.flashT--;
+  if(p.shake > 0) p.shake -= 0.5;
+
+  if(p.bail > 0){
+    const f = 1 - p.bail/46;
+    p.pos = p.bailFrom * (1-f) * (1-f);
+    p.tumble = f * Math.PI * 3.4;
+    p.vel = 0; p.bail--; p.t++;
+    return;
+  }
+
+  // step() has already cleared edge by the time this runs, so the presses
+  // arrive as arguments. Reading edge here meant the buffer never filled.
+  if(act){ p.actBuf = 8; }
+  if(U){   p.upBuf  = 8; }
+  if(p.actBuf > 0) p.actBuf--;
+  if(p.upBuf  > 0) p.upBuf--;
+
+  p.t++;
+  if(p.t > SK_RUN){ skateEnd(); return; }
+
+  if(p.air){
+    const a = p.air;
+    a.t++;
+    const lift0 = Math.sin(a.t/a.dur*Math.PI) * a.h;
+    const clear = lift0 > SK_CLEAR;
+    if(!held.left && !held.right) a.spinOk = true;
+    if(!held.up) a.upOk = true;
+    const spinning = clear && a.spinOk && (held.left || held.right);
+    if(spinning) a.rate = Math.min(SK_SPINMX, a.rate + SK_SPINA); else a.rate = SK_SPIN0;
+    if(clear && a.spinOk) a.spin += (held.left ? -a.rate : held.right ? a.rate : 0);
+    if(clear){
+      if(held.down){ a.flip += SK_FLIPR; if(!a.flipDir) a.flipDir = 1; }
+      else if(held.up && a.upOk){ a.flip -= SK_FLIPR; if(!a.flipDir) a.flipDir = -1; }
+    }
+    if(a.t >= a.dur){
+      const deg = Math.abs(a.spin)*180/Math.PI;
+      const halves = Math.round(deg/180);
+      const fdeg = Math.abs(a.flip)*180/Math.PI;
+      const turns = Math.round(fdeg/360);
+      if(a.spinOk && (held.left || held.right)){ p.air=null; skBail('SLAM. YOU WERE STILL SPINNING.'); return; }
+      if(held.down || (a.upOk && held.up)){ p.air=null; skBail('SLAM. THE BOARD WAS STILL FLIPPING.'); return; }
+      const spinN = halves ? String(halves*180) : '';
+      const flipN = turns ? (turns > 1 ? 'DOUBLE ' : '') + (a.flipDir > 0 ? 'KICKFLIP' : 'HEELFLIP') : '';
+      const name = (spinN && flipN) ? spinN + ' ' + flipN : flipN ? flipN : spinN ? spinN + ' AIR' : 'AIR';
+      skScore(40 + halves*22 + turns*55 + Math.round(a.h/4), name);
+      p.pos = a.side * 0.985;
+      p.vel = -a.side * Math.max(0.010, a.speed*0.92);
+      p.air = null;
+    }
+    return;
+  }
+
+  if(p.rock){
+    const r = p.rock;
+    r.t++;
+    if(r.t >= r.dur){
+      skScore(30, 'ROCK AND ROLL');
+      p.pos = r.side * 0.985;
+      p.vel = -r.side * 0.0115;
+      p.rock = null;
+    }
+    return;
+  }
+
+  p.vel += -Math.sign(p.pos) * Math.abs(p.pos) * SK_G * 4.2;
+  if(held.left)  p.vel -= SK_PUSH;
+  if(held.right) p.vel += SK_PUSH;
+  p.good = (held.left && p.vel < 0) || (held.right && p.vel > 0);
+  if(p.good) p.vel *= SK_PUMP;
+  p.vel *= SK_DRAG;
+  p.pos += p.vel;
+
+  const amp = Math.abs(p.pos);
+  if(amp > p.best) p.best = Math.min(1, amp);
+
+  if(amp >= SK_LIP){
+    p.lipT = 0;
+    p.lipSide = Math.sign(p.pos);
+    p.lipSpeed = Math.abs(p.vel);
+    p.pos = p.lipSide * SK_LIP;
+    p.vel = -p.lipSide * p.lipSpeed * 0.62;
+  } else if(p.lipT < 99) p.lipT++;
+
+  if(p.lipT <= SK_LATE && amp > 0.80){
+    const side = p.lipSide, speed = p.lipSpeed;
+    const wantTrick = held.act || p.actBuf > 0;
+    const wantAir   = held.up  || p.upBuf  > 0;
+    if(wantTrick && wantAir && speed >= SK_POP){
+      p.pos = side * SK_LIP;
+      const h = Math.min(54, (speed - SK_POP)*3000 + 14);
+      p.air = { t:0, dur: Math.round(34 + h*0.62), h:h, side:side,
+                spin:0, rate:SK_SPIN0, flip:0, flipDir:0, speed:speed,
+                upOk:false, spinOk:false };
+      p.actBuf = 0; p.upBuf = 0; p.shake = 3; p.lipT = 99;
+    } else if(wantTrick){
+      p.actBuf = 0; p.pos = side * SK_LIP;
+      p.rock = { t:0, dur:30, side:side };
+      p.lipT = 99;
+    }
+  }
+}
+
+function skateEnd(){
+  sk.phase = 'over';
+  if(sk.score > sk.high){ sk.high = sk.score; sk.newHigh = true; save('gttg_pool_best', sk.score); }
+}
+
+function drawSkater(){
+  const p = sk, SC = 1.5, WHEEL = 2, DECK = 2;
+  const who = skateWho(), sp = SPRITES[who];
+  if(!sp) return;
+  const r = poolRide(p.pos);
+  const lift = p.air ? Math.sin(p.air.t/p.air.dur*Math.PI) * p.air.h : 0;
+  const bx = Math.round(r.x), by = Math.round(r.y - lift);
+  if(lift > 1){
+    const sw = Math.max(4, 16 - lift/5);
+    px(r.x - sw/2, r.y - 1, sw, 2, 'rgba(0,0,0,.35)');
+  }
+  const surfA = -r.a;
+  let boardA = surfA, riderA = surfA * 0.4, roll = 0, yawC = 1;
+  if(p.rock){
+    boardA = surfA * (1 - Math.sin(p.rock.t/p.rock.dur*Math.PI)*0.86);
+    riderA = boardA * 0.4;
+  }
+  if(p.air){
+    const k = Math.sin(p.air.t/p.air.dur*Math.PI);
+    const slant = surfA * (1 - k*0.92);
+    boardA = slant; riderA = slant * 0.62;
+    const blend = Math.min(1, lift/SK_CLEAR);
+    const turn = Math.round(p.air.flip/(Math.PI*2)) * Math.PI*2;
+    roll = turn + (p.air.flip - turn) * blend;
+    yawC = Math.cos(p.air.spin);
+    if(Math.abs(yawC) < 0.14) yawC = yawC < 0 ? -0.14 : 0.14;
+  }
+  if(p.bail > 0){ boardA = surfA + p.tumble; riderA = surfA*0.4 + p.tumble*0.85; }
+
+  const cr = Math.cos(roll), upright = cr >= 0;
+  ctx.save();
+  ctx.translate(bx, by); ctx.rotate(boardA);
+  ctx.scale(SC * yawC, SC * (Math.abs(cr) < 0.16 ? 0.16 : Math.abs(cr)));
+  if(upright){
+    px(-8, -(DECK+WHEEL), 16, DECK, '#8a5c3c');
+    px(-8, -(DECK+WHEEL), 16, 1, '#a87450');
+    px(-6, -WHEEL, 2, WHEEL, '#c8c4bc');
+    px(4, -WHEEL, 2, WHEEL, '#c8c4bc');
+  } else {
+    px(-6, -(DECK+WHEEL)-WHEEL, 2, WHEEL, '#c8c4bc');
+    px(4, -(DECK+WHEEL)-WHEEL, 2, WHEEL, '#c8c4bc');
+    px(-8, -(DECK+WHEEL), 16, DECK, '#5c3c26');
+    px(-8, -WHEEL, 16, 1, '#a87450');
+  }
+  ctx.restore();
+
+  const deckUp = (DECK+WHEEL) * SC;
+  ctx.save();
+  ctx.translate(bx + Math.sin(boardA)*deckUp, by - Math.cos(boardA)*deckUp);
+  ctx.rotate(riderA);
+  ctx.scale(SC * yawC, SC);
+  ctx.drawImage(SPR[who], -Math.round(sp.w/2), -sp.h);
+  ctx.restore();
+}
+
+function drawSkate(){
+  const p = sk;
+
+  if(p.phase === 'brief'){
+    bg();
+    txtFit('01.12   AN EMPTY POOL', W/2, 6, '#9a958a', 'center', W-20);
+    txtFit('THERE IS ALWAYS A BOARD IN THE VAN', W/2, 18, '#ff2e88', 'center', W-20);
+    px(12, 32, W-24, 22, 'rgba(245,208,32,.10)');
+    px(12, 32, W-24, 1, '#f5d020');
+    txtFit('PUMP THE TRANSITION. GET TO THE COPING.', W/2, 36, '#f5d020', 'center', W-32);
+    txtFit('SPACE IS THE TRICK BUTTON.', W/2, 46, '#a8a49a', 'center', W-32);
+    let y = 62;
+    [['1','LEFT / RIGHT','PUMP THE WAY YOU ARE ALREADY GOING'],
+     ['2','SPACE AT THE LIP','ROCK AND ROLL. ALWAYS WORKS.'],
+     ['3','UP + SPACE','AIR, IF YOU CARRIED ENOUGH SPEED'],
+     ['4','LEFT / RIGHT IN THE AIR','SPIN. LET GO BEFORE YOU LAND IT.'],
+     ['5','DOWN OR UP IN THE AIR','KICKFLIP OR HEELFLIP. LET GO TO LAND.']].forEach(r=>{
+      txtFit(r[0], 16, y, '#ff2e88', 'left', 10);
+      txtFit(r[1], 28, y, '#f5d020', 'left', 130);
+      txtFit(r[2], 28, y+9, '#8a8690', 'left', W-46);
+      y += 19;
+    });
+    txtFit('SEVENTY FIVE SECONDS. SLAMS DO NOT END IT.', W/2, 158, '#7d7983', 'center', W-24);
+    if(p.high) txtFit('HIGH SCORE: ' + p.high, W/2, 170, '#7fe0ff', 'center', W-24);
+    txtC(tick % 54 < 34 ? 'PRESS SPACE' : '', 200, '#ff2e88');
+    return;
+  }
+
+  if(p.phase === 'over'){
+    bg();
+    txtFit('THE POOL', W/2, 8, '#ff2e88', 'center', W-20);
+    txtFit(p.bails > p.tricks ? 'MOSTLY CONCRETE'
+         : p.score >= 8000 ? 'THAT WAS A SESSION'
+         : p.score >= 2000 ? 'YOU GOT SOMETHING OUT OF IT'
+         : p.tricks ? 'A START'
+         : 'YOU NEVER LEFT THE FLAT', W/2, 24, '#f5d020', 'center', W-20);
+    let y = 46;
+    const row = (a,b2,c)=>{ txtFit(a, 24, y, '#9a958a', 'left', 128);
+                            txtFit(b2, W-24, y, c || '#e8e4d8', 'right', 152); y += 12; };
+    row('SCORE', p.score + '', '#f5d020');
+    row('TRICKS LANDED', p.tricks + '', p.tricks ? '#7dff7d' : '#e8e4d8');
+    row('SLAMS', p.bails + '', p.bails ? '#ff2e88' : '#7dff7d');
+    row('BEST TRICK', p.bigName || 'NONE', p.bigName ? '#f5d020' : '#e8e4d8');
+    if(p.bigName) row('   WORTH', p.bigPts + ' POINTS', '#f5d020');
+    row('LONGEST RUN', p.bestCombo + '', p.bestCombo > 6 ? '#7dff7d' : '#e8e4d8');
+    if(!p.newHigh) row('HIGH SCORE', p.high + '', '#7fe0ff');
+    if(p.newHigh && tick % 40 < 26)
+      txtFit('NEW HIGH SCORE', W/2, y + 4, '#7dff7d', 'center', W-40);
+    txtFit('SPACE   GO AGAIN', W/2, 196, '#f5d020', 'center', W-40);
+    txtFit('DOWN    BACK TO THE TOUR', W/2, 208, '#7a7a82', 'center', W-40);
+    return;
+  }
+
+  const sh = p.shake > 0 ? (Math.random()*p.shake - p.shake/2) : 0;
+  ctx.save(); ctx.translate(Math.round(sh), 0);
+  artBowl(p.t, null);
+  drawSkater();
+  ctx.restore();
+
+  px(0, 0, W, 12, 'rgba(0,0,0,.62)');
+  txtFit('SCORE ' + p.score, 6, 3, '#f5d020', 'left', 110);
+  if(p.combo > 1) txtFit('x' + Math.min(3, 1 + (p.combo-1)*0.15).toFixed(2), 124, 3, '#7dff7d', 'left', 44);
+  const left = Math.max(0, SK_RUN - p.t);
+  txtFit(Math.floor(left/3600) + ':' + String(Math.floor(left/60) % 60).padStart(2,'0'),
+         W-6, 3, left < 600 ? '#ff2e88' : '#e8e4d8', 'right', 46);
+
+  const amp = Math.min(1, Math.abs(p.pos));
+  px(6, H-10, 96, 5, 'rgba(0,0,0,.6)');
+  px(6, H-10, Math.round(96*amp), 5, amp > 0.9 ? '#7dff7d' : amp > 0.6 ? '#f5d020' : '#7fe0ff');
+  px(6 + Math.round(96*SK_LIP), H-12, 1, 9, '#ff2e88');
+  if(!p.air && !p.rock && !p.bail)
+    txtFit(p.vel < 0 ? '<<<' : '>>>', W/2, H-11, p.good ? '#7dff7d' : '#f5d020', 'center', 40);
+
+  if(p.air){
+    const d = Math.abs(p.air.spin)*180/Math.PI;
+    const fdeg = Math.abs(p.air.flip)*180/Math.PI;
+    const ok = !((p.air.spinOk && (held.left || held.right)) || held.down || (p.air.upOk && held.up));
+    const lbl = (d >= 90 ? Math.round(d) : '') + (fdeg >= 180 ? (p.air.flipDir>0?' KICKFLIP':' HEELFLIP') : '');
+    if(lbl) txtFit(String(lbl).trim(), W/2, 22, ok ? '#7dff7d' : '#ff2e88', 'center', 130);
+  }
+
+  if(p.flashT > 0){
+    ctx.globalAlpha = Math.min(1, p.flashT/20);
+    const ls = wrapFit(p.flash, W-24);
+    px(0, 196, W, 6 + ls.length*12, 'rgba(0,0,0,.66)');
+    ls.forEach((l,i)=>txtFit(l, W/2, 200+i*12, p.flashC, 'center', W-20));
+    ctx.globalAlpha = 1;
+  }
+}
+
+function skateStep(act, L, R, U, D){
+  if(sk.phase === 'brief'){ if(act){ sk.phase = 'ride'; } return; }
+  if(sk.phase === 'over'){
+    if(act){ startSkate(); sk.phase = 'ride'; return; }
+    if(D){ state = 'daysoff'; msg = 0; dof.t = 0; return; }
+    return;
+  }
+  updateSkate(act, U);
 }
 
 /* ============================================================
@@ -7070,7 +7416,8 @@ function step(){
   }
   if(state==='goodbye'){ goodbyeStep(act); return; }
   if(state==='rawpower'){ if(act){ startDaysOff(); } return; }
-  if(state==='daysoff'){ daysOffStep(act); return; }
+  if(state==='daysoff'){ daysOffStep(act, D); return; }
+  if(state==='pool'){ skateStep(act, L, R, U, D); return; }
   if(state==='ending'){
     if(act){
       stopEndAudio();
@@ -7166,6 +7513,7 @@ function frame(){
   else if(state==='goodbye') drawGoodbye();
   else if(state==='rawpower') drawRawPower();
   else if(state==='daysoff') drawDaysOff();
+  else if(state==='pool') drawSkate();
   else if(state==='door') drawDoor();
   else if(state==='van') drawVan();
   else if(state==='pit') drawPit();
