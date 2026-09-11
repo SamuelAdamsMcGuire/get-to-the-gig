@@ -458,6 +458,8 @@ function load(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON
 function save(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 let merchCode = load('gttg_code', null);
 let poolOpen = load('gttg_pool', false);
+let poolPick = 0;        // 0 = skate it, 1 = carry on
+let poolJustOpen = false;  // shown once, on the Koeln debrief
 
 /* ---- the merch code ----
    Shown only after finishing the tour a second time, as Allen.
@@ -2426,10 +2428,16 @@ function drawVan(){
     else if(vl.stops[0].done && !vl.missedShop) spr('MIKEY', 8, 84 + bh - 20);
     txtC(vl.stopMin > 0 ? '' : (tick%54<34 ? 'SPACE TO DRIVE ON' : ''), 84 + bh + 8, '#ff2e88');
   } else if(vl.flashT > 0){
+    // Clear of the objective strip at 30 and the two deadline lines at 45 and
+    // 57, and solid. It used to start at 34 at 60% opacity, so three different
+    // pieces of text printed through each other.
     ctx.globalAlpha = Math.min(1, vl.flashT/20);
     const ls = wrap(vl.flash, 38);
-    px(0, 34, W, 8 + ls.length*11, 'rgba(0,0,0,.6)');
-    ls.forEach((l,i)=>txtC(l, 38+i*11, vl.flashC));
+    const fy = 70, fh = 8 + ls.length*11;
+    px(0, fy, W, fh, 'rgba(0,0,0,.88)');
+    px(0, fy, W, 1, vl.flashC);
+    px(0, fy + fh - 1, W, 1, vl.flashC);
+    ls.forEach((l,i)=>txtC(l, fy + 4 + i*11, vl.flashC));
     ctx.globalAlpha = 1;
   }
 }
@@ -2699,16 +2707,24 @@ function updatePit(){
     if(mo.hitT === 0 && Math.abs(mo.x - me.x) < 10 && Math.abs(mo.y - me.y) < 12){
       const dx = me.x - mo.x, dy = me.y - mo.y, dd = Math.hypot(dx, dy) || 1;
       const wasCharging = mo.charge > 0;                 // read it before clearing it
-      const force = wasCharging ? 2.4 : 1.2;
-      me.vx += (dx/dd)*force; me.vy += (dy/dd)*force;
+      if(!wasCharging){
+        // Somebody wandering into you is not a hit. It used to shake the screen,
+        // cost stamina and spill your beer with no warning at all, which read
+        // as being thumped by nobody. Now you just get in each other's way.
+        me.vx += (dx/dd)*0.45; me.vy += (dy/dd)*0.45;
+        mo.vx = -(dx/dd)*0.5; mo.vy = -(dy/dd)*0.5;
+        mo.hitT = 26;
+        continue;
+      }
+      me.vx += (dx/dd)*2.4; me.vy += (dy/dd)*2.4;
       mo.vx = -(dx/dd)*0.6; mo.vy = -(dy/dd)*0.6;
       mo.hitT = 60; mo.charge = 0;
-      p.stam -= wasCharging ? 0.8 : 0.3;
+      p.stam -= 0.8;
       p.shake = 5;
       if(p.beer > 0 && rng() < 0.5){
         p.beer = Math.max(0, p.beer - 30); p.spills++;
         pitFlash(mo.id + ' TOOK YOUR KOELSCH WITH THEM', '#ff8a8a');
-      } else if(wasCharging){
+      } else {
         pitFlash(mo.id + ' SLAMMED YOU INTO THE PA', '#ff8a8a');
       }
     }
@@ -2723,7 +2739,7 @@ function updatePit(){
 function pitEnd(){
   const p = pl, g = GIGS[gigIdx];
   // Eight caught unlocks the pool on the day off. Silent until it happens.
-  if(p.caught >= 8 && !poolOpen){ poolOpen = true; save('gttg_pool', true); }
+  if(p.caught >= 8 && !poolOpen){ poolOpen = true; poolJustOpen = true; save('gttg_pool', true); }
   const total = p.caught + p.lifted;
   const bad = p.dropped + p.trampled;
   p.grade = p.carried ? 'CARRIED OUT'
@@ -2794,7 +2810,20 @@ function drawPit(){
     bg();
     txtFit(p.carried ? 'YOU GOT CARRIED OUT' : 'SET OVER', W/2, 12, p.carried ? '#ff2e88' : '#f5d020', 'center', W-20);
     txtFit(p.grade, W/2, 30, '#e8e4d8', 'center', W-20);
-    let y = 54;
+    const unlocked = p.caught >= 8;
+    if(unlocked){
+      const msg = poolJustOpen
+        ? ['YOU CAUGHT SO MANY STAGE DIVERS YOU UNLOCKED',
+           'THE SECRET LEVEL ON THE WAY TO BREMEN']
+        : ['THE SECRET LEVEL IS STILL THERE,',
+           'ON THE WAY TO BREMEN'];
+      px(18, 38, W-36, 24, 'rgba(125,255,125,.13)');
+      px(18, 38, W-36, 1, '#7dff7d');
+      px(18, 61, W-36, 1, '#7dff7d');
+      msg.forEach((l,i)=> txtFit(l, W/2, 42 + i*10, '#7dff7d', 'center', W-46));
+    }
+    let y = unlocked ? 68 : 54;
+    const step = unlocked ? 12 : 13;
     const rows = [
       ['SURFERS CAUGHT', p.caught + ''],
       ['SURFERS DROPPED', p.dropped + ''],
@@ -2807,7 +2836,7 @@ function drawPit(){
       const vw = Math.min(textW(r[1], 8), 120);
       txtFit(r[0], 24, y, '#9a958a', 'left', W - 56 - vw);
       txtFit(r[1], W-24, y, '#e8e4d8', 'right', 120);
-      y += 13;
+      y += step;
     });
     px(24, y+2, W-48, 1, 'rgba(232,228,216,.3)'); y += 10;
     txtFit('ON THE DOOR', 24, y, '#e8e4d8', 'left', 140);
@@ -3803,7 +3832,12 @@ function startRun(fresh){
   state = 'run'; msg = 0;
 }
 
-function runFlash(s, c){ hl.flash = s; hl.flashC = c || '#f5d020'; hl.flashT = 90; hl.shout = false; }
+function runFlash(s, c){
+  // Never talk over him. An ordinary flash used to replace a shout the frame
+  // after it started, which is why NOCH EIN PROBLEM went by unreadably.
+  if(hl.shout && hl.flashT > 40) return;
+  hl.flash = s; hl.flashC = c || '#f5d020'; hl.flashT = 90; hl.shout = false;
+}
 // What he actually says. Held four times as long as a normal flash, across the
 // middle of the screen, on a black panel, pulsing, with the screen kicked.
 function runShout(s, c){
@@ -5040,6 +5074,7 @@ function drawGoodbye(){
 let dof = null;
 
 function startDaysOff(){
+  poolPick = 0;
   dof = { i: 0, t: 0 };
   state = 'daysoff'; msg = 0;
 }
@@ -5373,8 +5408,8 @@ function artBowl(t, who){
   const inAir = lift > 1;
   const rocking = leg.trick === 'rock' && k >= 0;
 
-  const sp = SPRITES[who];
-  if(!sp) return;
+  const sp = who ? SPRITES[who] : null;
+  if(sp){
   const bx2 = Math.round(r.x), by2 = Math.round(r.y - lift);
   if(inAir){
     const sw = Math.max(4, 16 - lift/5);
@@ -5407,6 +5442,7 @@ function artBowl(t, who){
   ctx.scale(SC, SC);
   ctx.drawImage(SPR[who], -Math.round(sp.w/2), -sp.h);
   ctx.restore();
+  }
 
   // everybody else on the deck
   ['DASH','OX','HOODY'].forEach((id, i) => {
@@ -5450,11 +5486,12 @@ const DAYS_OFF = [
            'WHERE DUDEL AND THE BOB FAMILY ARE WAITING.'] },
 ];
 
-function daysOffStep(act, D){
+function daysOffStep(act, D, U){
   dof.t++;
-  // The empty pool card is the way in, once somebody has earned it in Koeln.
-  // Nothing on this card mentions it until then.
-  if(D && poolOpen && dof.i === 2 && dof.t > 22){
+  // Read the card, press on as normal, and if it is open you land in the
+  // level's own screen. Earning it is the secret. Getting in is not.
+  if(act && dof.t > 22 && poolOpen && dof.i === 2){
+    poolJustOpen = false;
     startSkate(); state = 'pool'; msg = 0;
     Song.play('chip8', { loop: true, rate: 1.0 });
     return;
@@ -5484,8 +5521,7 @@ function drawDaysOff(){
   if(p.t > 22) txtFit(tick%54<34 ? 'PRESS SPACE' : '', W/2, y + 1, '#ff2e88', 'center', 100);
   // Only on the pool card, and only once somebody has earned it in Koeln.
   // Everyone else sees exactly what they saw before.
-  if(poolOpen && p.i === 2 && p.t > 22)
-    txtFit(tick%60<40 ? 'DOWN TO SKATE IT' : '', W/2, by - 12, '#7dff7d', 'center', 140);
+
 }
 
 /* ============================================================
@@ -6408,6 +6444,19 @@ function skateEnd(){
   if(sk.score > sk.high){ sk.high = sk.score; sk.newHigh = true; save('gttg_pool_best', sk.score); }
 }
 
+function skMenu(labels, top){
+  const pw = 180, pxl = (W-pw)/2;
+  px(pxl, top, pw, 4 + labels.length*13, 'rgba(0,0,0,.8)');
+  px(pxl, top, pw, 1, '#7dff7d');
+  labels.forEach((lab,i)=>{
+    const yy = top + 3 + i*13, on = poolPick === i;
+    if(on) px(pxl+2, yy-2, pw-4, 12, 'rgba(125,255,125,.16)');
+    txt(on ? '>' : ' ', pxl+7, yy, '#7dff7d');
+    txtFit(lab, pxl+19, yy, on ? '#7dff7d' : '#6a8a6a', 'left', pw-28);
+  });
+  txtFit('UP / DOWN   SPACE PICKS', W/2, top + 6 + labels.length*13, '#5a5a62', 'center', pw);
+}
+
 function drawSkater(){
   const p = sk, SC = 1.5, WHEEL = 2, DECK = 2;
   const who = skateWho(), sp = SPRITES[who];
@@ -6487,7 +6536,7 @@ function drawSkate(){
     });
     txtFit('SEVENTY FIVE SECONDS. SLAMS DO NOT END IT.', W/2, 158, '#7d7983', 'center', W-24);
     if(p.high) txtFit('HIGH SCORE: ' + p.high, W/2, 170, '#7fe0ff', 'center', W-24);
-    txtC(tick % 54 < 34 ? 'PRESS SPACE' : '', 200, '#ff2e88');
+    skMenu(['SKATE IT', 'BACK TO THE TOUR'], 186);
     return;
   }
 
@@ -6511,8 +6560,7 @@ function drawSkate(){
     if(!p.newHigh) row('HIGH SCORE', p.high + '', '#7fe0ff');
     if(p.newHigh && tick % 40 < 26)
       txtFit('NEW HIGH SCORE', W/2, y + 4, '#7dff7d', 'center', W-40);
-    txtFit('SPACE   GO AGAIN', W/2, 196, '#f5d020', 'center', W-40);
-    txtFit('DOWN    BACK TO THE TOUR', W/2, 208, '#7a7a82', 'center', W-40);
+    skMenu(['SKATE IT AGAIN', 'BACK TO THE TOUR'], 186);
     return;
   }
 
@@ -6554,10 +6602,23 @@ function drawSkate(){
 }
 
 function skateStep(act, L, R, U, D){
-  if(sk.phase === 'brief'){ if(act){ sk.phase = 'ride'; } return; }
-  if(sk.phase === 'over'){
-    if(act){ startSkate(); sk.phase = 'ride'; return; }
-    if(D){ state = 'daysoff'; msg = 0; dof.t = 0; return; }
+  if(sk.phase === 'brief' || sk.phase === 'over'){
+    if(U) poolPick = 0;
+    if(D) poolPick = 1;
+    if(act){
+      if(poolPick === 0){
+        if(sk.phase === 'over') startSkate();
+        sk.phase = 'ride';
+        return;
+      }
+      // back to the day off, one card further on, as if nothing happened
+      poolPick = 0;
+      state = 'daysoff'; msg = 0;
+      dof.i = 3; dof.t = 0;
+      if(dof.i >= DAYS_OFF.length){ state = 'map'; }
+      Song.forMenu = false;
+      return;
+    }
     return;
   }
   updateSkate(act, U);
@@ -7085,9 +7146,14 @@ function drawScores(){
       if(me) px(10, y-2, W-20, 15, 'rgba(245,208,32,.10)');
       txtFit((i+1) + '', 16, y, '#7a7a82', 'left', 14);
       txt(r.ini, 34, y, me ? '#f5d020' : '#e8e4d8', 'left', 8);
-      txtFit(r.hero, 72, y, '#7d7983', 'left', 74);
-      txtFit(r.ending, 148, y, '#7fe0ff', 'left', 92);
-      txtFit(money(r.cash), W-14, y, r.cash < 0 ? '#ff2e88' : '#f5d020', 'right', 74);
+      txtFit(r.hero, 66, y, '#7d7983', 'left', 58);
+      // The full ending names run to 21 characters. Even at the 6px floor that
+      // is 126px in a 92px column, so they printed straight over the money.
+      const SHORT = { 'EVERYONE PAID':'ALL PAID',
+                      'ATE THE DIFFERENCE':'ATE IT',
+                      'THE BIRTHDAY BOY PAID':'SAM PAID' };
+      txtFit(SHORT[r.ending] || r.ending, 128, y, '#7fe0ff', 'left', 82);
+      txtFit(money(r.cash), W-14, y, r.cash < 0 ? '#ff2e88' : '#f5d020', 'right', 90);
       y += 15;
     });
   } else {
@@ -7416,7 +7482,7 @@ function step(){
   }
   if(state==='goodbye'){ goodbyeStep(act); return; }
   if(state==='rawpower'){ if(act){ startDaysOff(); } return; }
-  if(state==='daysoff'){ daysOffStep(act, D); return; }
+  if(state==='daysoff'){ daysOffStep(act, D, U); return; }
   if(state==='pool'){ skateStep(act, L, R, U, D); return; }
   if(state==='ending'){
     if(act){
@@ -7452,6 +7518,12 @@ function frame(){
       Song.play('chip8', { loop: true, rate: pl.kettenfett ? TOM_RATE : 1.0 });
       if(Song.playing === 'chip8') Chip.stop();
       else Chip.start('blackedout', bpm), Chip.setBpm(bpm);   // synth holds the fort
+      return;
+    }
+    if(state === 'pool' && sk){
+      Song.play('chip8', { loop: true, rate: 1.0 });
+      if(Song.playing === 'chip8') Chip.stop();
+      else Chip.start('bobfest', 176), Chip.setBpm(176);   // synth holds the fort
       return;
     }
     if(Song.wanted && Song.wanted.name === 'chip8') Song.quiet();
