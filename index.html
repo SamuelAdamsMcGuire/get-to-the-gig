@@ -155,7 +155,7 @@ const BEDS_PER_NIGHT  = 160;
 const MERCH_BASE      = 200;
 const FLIGHT_DEBT      = 1750;
 const PASTA_FUND    = 170;
-const BAND_POT        = 680;
+const BAND_POT        = 600;
 const BANDS_TO_PAY    = 4;
 const COSTS_PER_NIGHT = VAN_PER_NIGHT + FOOD_PER_NIGHT + BEDS_PER_NIGHT + PASTA_FUND;
 
@@ -664,6 +664,7 @@ function menuIsVertical(){
   if(state === 'load') return ll && ll.phase === 'over' && ll.canRetry;
   if(state === 'run')  return hl && hl.phase === 'over' && hl.canRetry;
   if(state === 'adv')  return ad && (ad.phase === 'over' ? ad.canRetry : !!ad.talk);
+  if(state === 'pool') return sk && (sk.phase === 'brief' || sk.phase === 'over');
   if(state === 'pick') return true;
   if(state === 'initials') return ini && ini.step === 'city';
   return false;                       // select and the score tabs run sideways
@@ -1458,6 +1459,11 @@ function refreshRoutes(){
 }
 
 /* ---- setup ---- */
+function vanVoice(){
+  const r = vl.riders;
+  return r && r.length ? r[Math.floor(rng()*r.length)] : hero.name;
+}
+
 function startVan(){
   const works = [];
   for(let k=0;k<13;k++){
@@ -1505,8 +1511,12 @@ function startVan(){
   }
   const pool2 = ROSTER.filter(r => r.id !== hero.id);
   const driver2 = pool2[Math.floor(rng()*pool2.length)];
+  // Whoever is sat in YOUR van. The other driver is in the other van and
+  // cannot see what you are driving past, so he never calls a sight.
+  const riders = [hero.name].concat(
+    ROSTER.filter(r => r.id !== hero.id && r.id !== driver2.id).map(r => r.name));
   vl = {
-    phase:'brief', t:0, limit: 60*60, cursor:0, driver2: driver2,
+    phase:'brief', t:0, limit: 60*60, cursor:0, driver2: driver2, riders: riders,
     van:{ x:START.x, y:START.y, a:-Math.PI/2, sp:0 }, turnQ:null, turnQT:0, grindT:0,
     trail: [], v2:{ x:START.x, y:START.y, a:-Math.PI/2, lost:0, gone:false, live:false, ti:0 },
     stops: [
@@ -1586,7 +1596,7 @@ function updateMalibu(v){
   if(m.mode === 'parked'){
     if(!m.hinted && vl.t > 150 && d < 240){
       m.hinted = true;
-      const who = vl.passenger ? 'JASON' : (vl.v2.live ? vl.driver2.name : hero.name);
+      const who = vl.passenger ? 'JASON' : vanVoice();
       const line = SEDAN_TEASE[Math.floor(rng()*SEDAN_TEASE.length)];
       vanFlash(who + ': "' + line + '"', '#7dff7d');
     }
@@ -1883,9 +1893,7 @@ function updateVan(){
         vl.facts = (vl.facts || 0) + 1;
         vl.jason = { text: vl.factBag.pop(), t: 260 };     // his own box, and it stays up
       } else {
-        // either van can call a sight. Sam: whoever, it does not matter.
-        const who = vl.v2.live ? vl.driver2.name : hero.name;
-        vanFlash(who + ': "' + sg.line + '"', '#7fe0ff');
+        vanFlash(vanVoice() + ': "' + sg.line + '"', '#7fe0ff');
       }
     }
   }
@@ -1967,7 +1975,7 @@ function updateVan(){
   if(vl.stops.every(s => s.done) && Math.hypot(v.x - VENUE.x, v.y - VENUE.y) < 34){
     if(!vl.metPluschi){
       vl.metPluschi = true; v.sp = 0;
-      vl.stopHold = true; vl.stopMin = 45;
+      vl.stopHold = true; vl.stopMin = 70;
       vl.stopMsg = ['PLUSCHI HAS THE DOOR PROPPED OPEN',
                     'AND THE LIGHT ON OVER THE LOAD IN.',
                     '',
@@ -1978,6 +1986,21 @@ function updateVan(){
     vanArrive(false); return;
   }
   if(vl.t > vl.limit){ vanArrive(true); return; }
+}
+
+// The other van pulls in beside you while Pluschi is talking, instead of
+// stopping dead wherever it happened to be when the level froze.
+function v2PullUp(){
+  const v2 = vl.v2;
+  if(!v2.live || v2.gone) return false;
+  const tx = VENUE.x - 18, ty = VENUE.y + 2;
+  const dx = tx - v2.x, dy = ty - v2.y, d = Math.hypot(dx, dy);
+  if(d < 2.5){ v2.x = tx; v2.y = ty; v2.a = -Math.PI/2; return true; }
+  const sp = Math.max(2.2, Math.min(9, d/26));
+  v2.a = Math.atan2(dy, dx);
+  v2.x += (dx/d)*sp;
+  v2.y += (dy/d)*sp;
+  return false;
 }
 
 function vanArrive(late){
@@ -2062,16 +2085,16 @@ function drawVan(){
 
     let y = 144;
     const rows = [
-      ['#f5d020', 'MUSIKLADEN', 'STRINGS. IT SHUTS EARLY.'],
-      ['#7fe0ff', 'BAHNHOF',    'JASON. HE WILL NARRATE THE CITY.'],
-      ['#ff2e88', 'HACKEREI',   'BEFORE THE CLOCK RUNS OUT.'],
+      ['#f5d020', 'MUSIKLADEN', 'STRINGS FOR THE GIG.'],
+      ['#7fe0ff', 'BAHNHOF',    'JASON, THE LEFTBEHINDS SINGER.'],
+      ['#ff2e88', 'HACKEREI',   'IN TIME FOR THE SOUNDCHECK.'],
     ];
     txtFit('DRIVE PAST ODD THINGS. IT KEEPS THEM TALKING.', W/2, 133, '#7a7a82', 'center', W-20);
     for(const r of rows){
       px(14, y+2, 5, 5, r[0]);
-      const lsz = txtFit(r[1], 26, y, r[0], 'left', 104);
-      const lw = Math.min(textW(r[1], lsz), 104);
-      txtFit(r[2], 26 + lw + 10, y, '#9a958a', 'left', W - 46 - lw);
+      const lsz = txtFit(r[1], 24, y, r[0], 'left', 88);
+      const lw = Math.min(textW(r[1], lsz), 88);
+      txtFit(r[2], 24 + lw + 8, y, '#9a958a', 'left', W - 46 - lw);
       y += 16;
     }
     px(14, y+4, W-28, 1, 'rgba(232,228,216,.18)');
@@ -2812,11 +2835,8 @@ function drawPit(){
     txtFit(p.grade, W/2, 30, '#e8e4d8', 'center', W-20);
     const unlocked = p.caught >= 8;
     if(unlocked){
-      const msg = poolJustOpen
-        ? ['YOU CAUGHT SO MANY STAGE DIVERS YOU UNLOCKED',
-           'THE SECRET LEVEL ON THE WAY TO BREMEN']
-        : ['THE SECRET LEVEL IS STILL THERE,',
-           'ON THE WAY TO BREMEN'];
+      const msg = ['YOU UNLOCKED THE SKATE LEVEL',
+                   'ON THE WAY TO BREMEN'];
       px(18, 38, W-36, 24, 'rgba(125,255,125,.13)');
       px(18, 38, W-36, 1, '#7dff7d');
       px(18, 61, W-36, 1, '#7dff7d');
@@ -3502,8 +3522,9 @@ function drawLoad(){
 
     if(p.canRetry){
       // name what you would be going on without, rather than 'leave it'
-      const lost = p.broken.map(i => LOAD[i].n.replace('THE ','')).join(' + ');
-      const second = p.broken.length ? onwardLabel() + ', WITHOUT ' + lost
+      // The full list is already spelled out under PLAYING WITHOUT above. Naming
+      // it again here ran past the edge as soon as two things were broken.
+      const second = p.broken.length ? onwardLabel() + ', MINUS ' + p.broken.length
                    : p.down.length < LOAD.length ? onwardLabel() + ', SHORT'
                    : onwardLabel();
       const oy = Math.min(204, y + 6);
@@ -4475,7 +4496,7 @@ function drawRun(){
     row('BAILED', p.bumps + ' TIMES');
     row('EPIC HAMBURG SPOTS', p.passed + ' OF 3');
     row('SETLISTS', p.got + ' OF ' + p.picks.length, p.got === 0 ? '#ff2e88' : '#e8e4d8');
-    row('BROUGHT WITH YOU', p.crew.length + ' OF 3',
+    row('BAND MEMBERS FOUND', p.crew.length + ' OF 3',
         p.crew.length === 3 ? '#7fe0ff' : p.crew.length === 0 ? '#ff2e88' : '#e8e4d8');
     if(p.fists) row('YOUR HANDS', 'ALL YOU NEEDED', '#7dff7d');
     else row('THE MIC STAND', p.weapon ? 'FOUND IT' : 'NEVER FOUND IT', p.weapon ? '#7dff7d' : '#ff2e88');
@@ -5562,14 +5583,14 @@ function advDone(){ return ad.marcoOK && ad.lemmyOK && ad.soundOK; }
 function advGoal(){
   const p = ad;
   if(!p.soundOK){
-    if(p.soundTalks === 0) return ['ELF, ON THE DESK', 'GO DOWN TO THE CELLAR AND ASK WHAT HE NEEDS'];
-    if(!p.knowDI)          return ['ELF, ON THE DESK', 'ASK HIM AGAIN. HE WANTS SOMETHING SPECIFIC'];
-    if(!p.haveDI)          return ['A DI BOX FOR THE BASS', 'SEARCH THE SEVEN SEATER, OUT FRONT'];
-    return ['YOU HAVE THE DI BOX', 'TAKE IT DOWN TO ELF IN THE CELLAR'];
+    if(p.soundTalks === 0) return ['ELF', 'DOWN IN THE CELLAR. ASK HIM'];
+    if(!p.knowDI)          return ['ELF', 'ASK HIM AGAIN. HE WANTS A THING'];
+    if(!p.haveDI)          return ['A DI BOX', 'SEARCH THE SEVEN SEATER'];
+    return ['YOU HAVE THE DI BOX', 'TAKE IT DOWN TO ELF'];
   }
-  if(!p.marcoOK)  return ['MARCO', 'HE IS AT THE BAR. HEAR HIM OUT'];
-  if(!p.lemmyOK)  return ['THE GUEST LIST', 'LEMMY IS AT THE BAR. MARCO HAS FIXED IT'];
-  return ['DONE', 'ASK ANYONE TO OPEN UP, OR DO IT AT THE DOOR'];
+  if(!p.marcoOK)  return ['MARCO', 'AT THE BAR. HEAR HIM OUT'];
+  if(!p.lemmyOK)  return ['THE GUEST LIST', 'LEMMY, AT THE BAR'];
+  return ['DONE', 'OPEN UP WHEN YOU LIKE'];
 }
 
 /* what is in each room: people and things you can get at */
@@ -5588,9 +5609,9 @@ function roomThings(){
     { k:'npc',   id:'JAN', label:'JAN. HE WANTS AN INTERVIEW', x: 236, y: 176 },
   ];
   if(r === 'BAR') return [
-    { k:'npc',  id:'MARCO', label:'MARCO', x: 60, y: 176 },
-    { k:'npc',  id:'LEMMY', label:'LEMMY, WHO IS DOING THE GIG', x: 196, y: 176 },
-    { k:'npc',  id:'DOLF',  label:'DOLF. TRUST IS HIS MAGAZINE', x: 74, y: 176 },
+    { k:'npc',  id:'MARCO', label:'MARCO', x: 36, y: 176 },
+    { k:'npc',  id:'DOLF',  label:'DOLF. TRUST IS HIS MAGAZINE', x: 124, y: 176 },
+    { k:'npc',  id:'LEMMY', label:'LEMMY, WHO IS DOING THE GIG', x: 212, y: 176 },
   ];
   return [
     { k:'npc',  id:'ELF', label:'ELF, ON THE DESK', x: 44, y: 176 },
@@ -6119,8 +6140,10 @@ function drawAdv(){
   // what to do next, in one line
   const g = advGoal();
   px(0, 22, W, 12, 'rgba(127,224,255,.10)');
-  txtFit('NEXT:  ' + g[0], 8, 24, '#7fe0ff', 'left', 96);
-  txtFit(g[1], 108, 24, '#a8a49a', 'left', W-116);
+  const gA = 'NEXT:  ' + g[0];
+  const gAw = Math.min(textW(gA, 8), 150);
+  txtFit(gA, 8, 24, '#7fe0ff', 'left', gAw);
+  txtFit(g[1], 20 + gAw, 24, '#a8a49a', 'left', W - gAw - 28);   // a gap, not a collision
 
   // the three floors, so up and down read as stairs
   px(0, 36, 84, 46, 'rgba(0,0,0,.78)');
@@ -6441,6 +6464,7 @@ function updateSkate(act, U){
 
 function skateEnd(){
   sk.phase = 'over';
+  poolPick = 1;              // defaults to carrying on, never to another run
   if(sk.score > sk.high){ sk.high = sk.score; sk.newHigh = true; save('gttg_pool_best', sk.score); }
 }
 
@@ -6534,7 +6558,7 @@ function drawSkate(){
       txtFit(r[2], 28, y+9, '#8a8690', 'left', W-46);
       y += 19;
     });
-    txtFit('SEVENTY FIVE SECONDS. SLAMS DO NOT END IT.', W/2, 158, '#7d7983', 'center', W-24);
+    txtFit('SEVENTY FIVE SECONDS. IF YOU BAIL, KEEP SKATING.', W/2, 158, '#7d7983', 'center', W-24);
     if(p.high) txtFit('HIGH SCORE: ' + p.high, W/2, 170, '#7fe0ff', 'center', W-24);
     skMenu(['SKATE IT', 'BACK TO THE TOUR'], 186);
     return;
@@ -6950,6 +6974,39 @@ function drawEnding(){
   txtC(tick%54<34 ? 'PRESS SPACE' : '', 224, '#ff2e88');
 }
 
+
+function drawGoal(){
+  bg();
+  txtC('WHAT YOU ARE PLAYING FOR', 10, '#ff2e88');
+  txtFit('SIX GIGS. TEN DAYS. TWO VANS.', W/2, 24, '#7d7983', 'center', W-24);
+
+  px(16, 40, W-32, 34, 'rgba(245,208,32,.08)');
+  px(16, 40, W-32, 1, '#f5d020');
+  txtFit('THE JOB', 24, 44, '#f5d020', 'left', 80);
+  txtFit('GET THE BAND, THE GEAR AND THE', 24, 55, '#e8e4d8', 'left', W-48);
+  txtFit('CROWD THROUGH ALL SIX GIGS.', 24, 64, '#e8e4d8', 'left', W-48);
+
+  px(16, 80, W-32, 44, 'rgba(127,224,255,.07)');
+  px(16, 80, W-32, 1, '#7fe0ff');
+  txtFit('THE MONEY', 24, 84, '#7fe0ff', 'left', 80);
+  txtFit('YOU PAY THE VANS, THE FOOD AND', 24, 95, '#e8e4d8', 'left', W-48);
+  txtFit('THE ACCOMMODATION. AT THE END', 24, 104, '#e8e4d8', 'left', W-48);
+  txtFit('YOU PAY THE BANDS AND FLIGHTS.', 24, 113, '#e8e4d8', 'left', W-48);
+
+  px(16, 130, W-32, 62, 'rgba(255,46,136,.12)');
+  px(16, 130, W-32, 2, '#ff2e88');
+  px(16, 191, W-32, 1, '#ff2e88');
+  txtFit('FINISH IN THE BLACK', 24, 136, '#ff2e88', 'left', 160);
+  txtFit('AND THE GAME GIVES YOU A CODE.', 24, 149, '#e8e4d8', 'left', W-48);
+  txtFit('SHOW IT AT THE MERCH TABLE AT ONE', 24, 160, '#e8e4d8', 'left', W-48);
+  txtFit('OF THE LISTED SHOWS FOR ONE FREE', 24, 169, '#e8e4d8', 'left', W-48);
+  txtFit('SURPRISE MERCH ITEM.', 24, 178, '#f5d020', 'left', W-48);
+
+  if(SPRITES[hero.id]) spr(hero.id, 18, 220 - SPRITES[hero.id].h);
+  txtFit(hero.name + ',  ' + hero.role, 42, 202, '#7a7a82', 'left', W-60);
+  txtC(tick%54<34 ? 'PRESS SPACE' : '', 226, '#ff2e88');
+}
+
 function drawCode(){
   bg();
   const who = load('gttg_lastini', '');
@@ -6981,7 +7038,7 @@ function drawCode(){
   txtC(merchCode || '', 70, '#ff2e88', 16);
   wrap('SCREENSHOT THIS AND SHOW IT AT THE MERCH TABLE AT ANY OF THE SIX SHOWS.', 34)
     .forEach((l,i)=>txtC(l, 116+i*13, '#e8e4d8'));
-  wrap('ONE FREE SURPRISE MERCH ITEM, WHILE THEY LAST. WHOEVER IS ON THE TABLE HAS SEEN THIS SCREEN BEFORE.', 36)
+  wrap('ONE FREE SURPRISE MERCH ITEM. WHOEVER IS ON THE TABLE HAS SEEN THIS SCREEN BEFORE.', 36)
     .forEach((l,i)=>txtC(l, 152+i*12, '#8a8690'));
   px(20, 192, W-40, TICKET_URL ? 22 : 14, 'rgba(245,208,32,.10)');
   px(20, 192, W-40, 1, '#f5d020');
@@ -7213,7 +7270,7 @@ function castList(){
     { id:'REF',     name:'REF',     sub:'PARTY FORCE, OAKLAND',
       line:'ORALE. IF HE IS NOT IN THE PIT HE IS OUTSIDE WITH THE VATOS.' },
     { head: 'RAW POWER   ITALY   LEG 1 ONLY' },
-    { id:'MAURO',   name:'MAURO',   sub:'RAW POWER',        line:'COUNTS THE BAGS THREE TIMES. FLIES HOME FROM FRANKFURT.' },
+    { id:'MAURO',   name:'MAURO',   sub:'RAW POWER',        line:'LEGENDARY HC SINGER AND STILL AMAZED OF GRAVITY BONGS.' },
     { id:'RP_GTR',  name:'PAOLO',     sub:'GUITAR, RAW POWER',
       line:'THIRTY YEARS OF IT AND STILL THE LOUDEST THING IN THE ROOM.' },
     { id:'RP_BASS', name:'MARCO',     sub:'BASS, RAW POWER',
@@ -7316,7 +7373,8 @@ function drawCredits(){
         spr(e.id, 20, y + 22 - sp.h);
       }
       txtFit(e.name, tx, y, '#f5d020', 'left', 150);
-      txtFit(e.sub, tx, y + 10, '#7d7983', 'left', W - tx - 14);
+      // the stat blocks live at W-62, so the sub has to stop short of them
+      txtFit(e.sub, tx, y + 10, '#7d7983', 'left', (e.stat ? W - 68 : W - 14) - tx);
       e.lines.forEach((l, i) => txtFit(l, tx, y + 21 + i*9, '#a8a49a', 'left', W - tx - 14));
       if(e.stat){
         const st = e.stat;
@@ -7405,7 +7463,8 @@ function screenId(){
            : state === 'pit'  ? (pl && pl.phase)
            : state === 'load' ? (ll && ll.phase)
            : state === 'run'  ? (hl && hl.phase)
-           : state === 'adv'  ? (ad && ad.phase) : '';
+           : state === 'adv'  ? (ad && ad.phase)
+           : state === 'pool' ? (sk && sk.phase) : '';
   return state + ':' + (ph || '');
 }
 let lastScreen = '', actHeldOver = false;
@@ -7425,8 +7484,9 @@ function step(){
   edge.act = edge.left = edge.right = edge.up = edge.down = false;
   if(state === 'van' && vl && vl.phase === 'drive'){
     if(vl.stopHold){
+      const parked = vl.metPluschi ? v2PullUp() : true;
       if(vl.stopMin > 0) vl.stopMin--;
-      else if(act){ vl.stopHold = false; vl.stopMsg = null; }
+      else if(act && parked){ vl.stopHold = false; vl.stopMsg = null; }
       return;
     }
     updateVan(); return;
@@ -7444,10 +7504,11 @@ function step(){
     if(L){ cursor = (cursor+ROSTER.length-1)%ROSTER.length; msg=0; }
     if(R){ cursor = (cursor+1)%ROSTER.length; msg=0; }
     if(act){
-      startTour(ROSTER[cursor]); state='map'; msg=0;
+      startTour(ROSTER[cursor]); state='goal'; msg=0;
     }
     return;
   }
+  if(state==='goal'){ if(act){ state='map'; msg=0; } return; }
   if(state==='map'){ if(act) launchGig(); return; }
   if(state==='pick'){
     const total = GIGS.length + SCENES.length;
@@ -7505,7 +7566,7 @@ function frame(){
   Chip.pump();
   // what should be playing right now
   (function(){
-    const menuish = state === 'title' || state === 'select' || state === 'map' || state === 'pick'
+    const menuish = state === 'title' || state === 'select' || state === 'goal' || state === 'map' || state === 'pick'
                  || state === 'goodbye' || state === 'credits' || state === 'daysoff'
                  || state === 'initials' || state === 'scores' || state === 'code'
                  || state === 'dates';
@@ -7574,11 +7635,15 @@ function frame(){
   // left and right move between the three slots. The three button pad cannot
   // do that, because in vertical mode its two buttons send both axes at once.
   const inIni  = state === 'initials' && ini && ini.step !== 'city';
-  setPad(inPit || inVan || inLoad || inRun || inAdv || inIni,
+  // The pool needs four directions too: up pops the air, down is the kickflip,
+  // left and right pump and spin. On the three button pad it was unplayable.
+  const inPool = state === 'pool' && sk && sk.phase === 'ride';
+  setPad(inPit || inVan || inLoad || inRun || inAdv || inIni || inPool,
          inPit ? 'LIFT' : inVan ? 'GAS' : inLoad ? 'DOWN' : inAdv ? 'TALK'
-               : inIni ? 'NEXT' : 'RUN');
+               : inIni ? 'NEXT' : inPool ? 'TRICK' : 'RUN');
   if(state==='title') drawTitle();
   else if(state==='select') drawSelect();
+  else if(state==='goal') drawGoal();
   else if(state==='map') drawMap();
   else if(state==='pick') drawPick();
   else if(state==='result') drawResult();
