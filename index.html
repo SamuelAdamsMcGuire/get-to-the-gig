@@ -2935,6 +2935,30 @@ function drawPit(){
   px(PIT.x, PIT.y+PIT.h-2, PIT.w, 2, '#32323e');
   px(PIT.x-2, PIT.y, 2, PIT.h, '#32323e');
   px(PIT.x+PIT.w, PIT.y, 2, PIT.h, '#32323e');
+
+  // The whole room shoves every eight beats. It used to be flagged only by
+  // small blocks up in the HUD, so in the pit it felt like being hit by nobody.
+  if(p.surgeIn === 1 && !p.surge){
+    const c = tick%8<4 ? '#ff2e88' : '#f5d020';
+    px(PIT.x, PIT.y, PIT.w, 2, c);
+    px(PIT.x, PIT.y+PIT.h-2, PIT.w, 2, c);
+    px(PIT.x-2, PIT.y, 2, PIT.h, c);
+    px(PIT.x+PIT.w, PIT.y, 2, PIT.h, c);
+  }
+  if(p.surge && p.surge.t < 14){
+    // a bar on the side it is coming FROM, so the shove has a direction
+    const a = Math.min(1, (14 - p.surge.t)/14);
+    ctx.globalAlpha = a * 0.8;
+    const bw = 6;
+    if(Math.abs(p.surge.dx) > Math.abs(p.surge.dy)){
+      if(p.surge.dx > 0) px(PIT.x, PIT.y, bw, PIT.h, '#ff2e88');
+      else               px(PIT.x+PIT.w-bw, PIT.y, bw, PIT.h, '#ff2e88');
+    } else {
+      if(p.surge.dy > 0) px(PIT.x, PIT.y, PIT.w, bw, '#ff2e88');
+      else               px(PIT.x, PIT.y+PIT.h-bw, PIT.w, bw, '#ff2e88');
+    }
+    ctx.globalAlpha = 1;
+  }
   for(let i=0;i<PIT.w;i+=22) px(PIT.x+i, PIT.y+PIT.h-6, 12, 1, 'rgba(232,228,216,.07)');
 
   // the crowd
@@ -3522,17 +3546,23 @@ function drawLoad(){
 
     if(p.canRetry){
       // name what you would be going on without, rather than 'leave it'
-      // The full list is already spelled out under PLAYING WITHOUT above. Naming
-      // it again here ran past the edge as soon as two things were broken.
-      const second = p.broken.length ? onwardLabel() + ', MINUS ' + p.broken.length
-                   : p.down.length < LOAD.length ? onwardLabel() + ', SHORT'
-                   : onwardLabel();
-      const oy = Math.min(204, y + 6);
+      // Name what you are going without, on a second line, rather than counting
+      // it. One line could not hold three items without running off the edge.
+      const lost = p.broken.map(i => LOAD[i].n.replace('THE ','')).join(' + ');
+      const second = onwardLabel() + (p.broken.length ? ',' : '');
+      const under  = p.broken.length >= 4 ? 'WITH ALMOST NOTHING LEFT'
+                   : p.broken.length ? 'WITHOUT ' + lost
+                   : p.down.length < LOAD.length ? 'SHORT' : '';
+      const oy = Math.min(196, y + 6);
+      const gap = under ? 26 : 16;
       [[second,'#7dff7d'],['TRY AGAIN','#f5d020']].forEach((o,i)=>{
-        const yy = oy + i*16, sel = i === (p.cursor||0);
-        if(sel) px(16, yy-3, W-32, 15, 'rgba(255,46,136,.16)');
+        const yy = oy + i*gap, sel = i === (p.cursor||0);
+        const hh = (i === 0 && under) ? 25 : 15;
+        if(sel) px(16, yy-3, W-32, hh, 'rgba(255,46,136,.16)');
         txt(sel ? '>' : ' ', 22, yy, '#ff2e88');
         txtFit(o[0], 36, yy, sel ? o[1] : '#7d7983', 'left', W-56);
+        if(i === 0 && under)
+          txtFit(under, 36, yy + 11, sel ? '#ff8a8a' : '#7d7983', 'left', W-56);
       });
     } else txtC(tick%54<34 ? 'PRESS SPACE' : '', Math.min(232, y + 10), '#ff2e88');
     return;
@@ -5606,11 +5636,11 @@ function roomThings(){
   if(r === 'STREET') return [
     { k:'thing', id:'VAN',   label: ad.haveDI ? 'THE SEVEN SEATER, TURNED OVER' : (ad.knowDI ? 'THE SEVEN SEATER - SEARCH IT' : 'THE SEVEN SEATER'), x: 30, y: 176 },
     { k:'thing', id:'DOORS', label:'THE DOOR - OPEN UP WHEN YOU ARE READY', x: 128, y: 176 },
-    { k:'npc',   id:'JAN', label:'JAN. HE WANTS AN INTERVIEW', x: 236, y: 176 },
+    { k:'npc',   id:'DOLF', label:'DOLF. TRUST FANZINE', x: 236, y: 176 },
   ];
   if(r === 'BAR') return [
     { k:'npc',  id:'MARCO', label:'MARCO', x: 36, y: 176 },
-    { k:'npc',  id:'DOLF',  label:'DOLF. TRUST IS HIS MAGAZINE', x: 124, y: 176 },
+    { k:'npc',  id:'JAN',   label:'JAN. HE WANTS AN INTERVIEW', x: 124, y: 176 },
     { k:'npc',  id:'LEMMY', label:'LEMMY, WHO IS DOING THE GIG', x: 212, y: 176 },
   ];
   return [
@@ -5630,7 +5660,8 @@ function talkFor(who){
     return { who, lines:['TRUST IS HIS MAGAZINE. IT HAS OUTLASTED',
       'MOST OF THE BANDS IN IT.',
       '',
-      '"JAN IS OUT FRONT. GO AND TALK TO HIM."'],
+      '"JAN IS INSIDE LOOKING FOR YOU.',
+      'HE WANTS TWENTY MINUTES."'],
       opts:[{ t:'MAYBE LATER', go:'end' }] };
   }
 
@@ -5858,8 +5889,9 @@ function drawDoorsOpen(){
   px(0, GND+5, W, H-GND-5, '#08080c');
 
   // how good a night it is depends on what you sorted
-  const n = (p.marcoOK?1:0) + (p.lemmyOK?1:0) + (p.soundOK?1:0);
-  const want = 14 + n*12 + (p.trustDone ? 6 : 0);
+  // Four jobs, not three: the interview counts as much as the rest.
+  const n = (p.marcoOK?1:0) + (p.lemmyOK?1:0) + (p.soundOK?1:0) + (p.trustDone?1:0);
+  const want = [16, 40, 64, 90, 122][n];
   if(!p.crowd){
     p.crowd = [];
     let h = 20261203;
@@ -5895,11 +5927,12 @@ function drawDoorsOpen(){
   if(t > 70){
     px(0, 200, W, 26, 'rgba(0,0,0,.82)');
     px(0, 200, W, 1, '#ff2e88');
-    const line = n === 3 ? 'IT IS GOING TO BE A GOOD ONE.'
-               : n === 2 ? 'IT WILL DO. SOMEBODY WILL NOTICE THE THIRD THING.'
-               : n === 1 ? 'THEY ARE IN. IT IS NOT READY.'
-               : 'THEY ARE IN AND NOTHING IS READY.';
-    txtFit(line, W/2, 205, n >= 2 ? '#7dff7d' : '#ff8a8a', 'center', W-16);
+    const line = n === 4 ? 'IT IS GONNA BE A RIPPER'
+               : n === 3 ? 'NOT BAD FOR A WEEKDAY'
+               : n === 2 ? 'LOOKS LIKE A FUN CROWD'
+               : n === 1 ? 'ENOUGH TO HAVE A GOOD GIG'
+               : 'BETTER THAN PLAYING FOR THE OTHER BANDS';
+    txtFit(line, W/2, 205, n >= 3 ? '#7dff7d' : '#ff8a8a', 'center', W-16);
     txtFit(tick%54<34 ? 'PRESS SPACE' : '', W/2, 216, '#ff2e88', 'center', 100);
   }
 }
@@ -6903,12 +6936,14 @@ function drawRawPower(){
   txtC('END OF LEG 1', 16, '#9a958a');
   spr('MAURO', 20, 40, 2);
   txtC('THE ITALIANS FLY HOME', 48, '#e8e4d8');
-  txtC('SPENT MONTHS AGO, EITHER WAY', 64, '#7d7983');
+  // below Mauro, not through him: he is drawn at x20 y40 at double size
+  txtFit('RAW POWER GO HOME. FOUR BANDS FROM HERE.', W/2, 80, '#7d7983', 'center', W-20);
   let y = 96;
+  // COVERED used to repeat the same figure as FLIGHTS TO COVER, so the column
+  // looked like it subtracted twice and the total looked wrong.
   const rows = [
     ['LEG 1 KEPT', legOneNet],
-    ['FLIGHTS TO COVER', -s.owed],
-    ['COVERED', -s.paid],
+    ['FLIGHTS TO COVER', -s.paid],
   ];
   rows.forEach(rw=>{
     const val = money(rw[1]), vw = Math.min(textW(val, 8), 100);
@@ -6923,9 +6958,9 @@ function drawRawPower(){
     wrap('YOU CARRY THAT HOLE INTO LEG 2. THE MERCH TABLE IS THE ONLY LEVER LEFT.', 34)
       .forEach((l,i)=>txtC(l, y+22+i*12, '#8a8690'));
   } else {
-    txtFit('CLEARED', 30, y, '#f5d020', 'left', 120);
-    txtFit(money(0), W-30, y, '#f5d020', 'right', 100);
-    txtC('LEG 1 PAID FOR ITSELF.', y+22, '#8a8690');
+    txtFit('LEFT FROM LEG 1', 30, y, '#f5d020', 'left', 150);
+    txtFit(money(legOneNet - s.paid), W-30, y, '#f5d020', 'right', 100);
+    txtC('THE FLIGHTS ARE CLEARED.', y+22, '#8a8690');
   }
   txtC(tick%54<34 ? 'SPACE: FOUR DAYS OFF' : '', 226, '#e8e4d8');
 }
@@ -6945,6 +6980,7 @@ function drawEnding(){
   const left = float_;
   let head, sub;
   if(left >= 400){ head = 'EVERYONE PAID'; sub = 'KEGS AT THE SONIC. THE TOUR CASH SURVIVED.'; }
+  else if(left >= 0){ head = 'EVERYONE PAID'; sub = 'NOT MUCH LEFT, BUT NOBODY IS OUT OF POCKET.'; }
   else if(left >= -400){ head = 'YOU ATE THE DIFFERENCE'; sub = 'THE BANDS GOT PAID. YOU DID NOT.'; }
   else { head = 'THE BIRTHDAY BOY PAID'; sub = 'FIFTY YEARS OLD AND FUNDING YOUR OWN TOUR.'; }
 
@@ -6953,10 +6989,13 @@ function drawEnding(){
   wrap(sub, 36).forEach((l,i)=>txtC(l, 50+i*12, '#8a8690'));
 
   let y = 84;
+  // SETTLED repeated FIVE WAY SPLIT, and the flights paid at the end of Leg 1
+  // were never shown at all, so the column could not add up to the total.
+  const flightsPaid = rpSettle ? rpSettle.paid : 0;
   const rows = [
     ['SIX GIGS, KEPT', ledger.reduce((a,b)=>a+b.net,0)],
+    ['RAW POWER FLIGHTS', -flightsPaid],
     ['FIVE WAY SPLIT', -s.owed],
-    ['SETTLED', -s.paid],
   ];
   rows.forEach(rw=>{
     const val = money(rw[1]), vw = Math.min(textW(val, 8), 100);
@@ -6977,8 +7016,8 @@ function drawEnding(){
 
 function drawGoal(){
   bg();
-  txtC('WHAT YOU ARE PLAYING FOR', 10, '#ff2e88');
-  txtFit('SIX GIGS. TEN DAYS. TWO VANS.', W/2, 24, '#7d7983', 'center', W-24);
+  txtC('YOUR MISSION', 10, '#ff2e88');
+  txtFit('SURVIVE THE TOUR AND DO NOT LOSE MONEY.', W/2, 24, '#e8e4d8', 'center', W-24);
 
   px(16, 40, W-32, 34, 'rgba(245,208,32,.08)');
   px(16, 40, W-32, 1, '#f5d020');
@@ -7090,7 +7129,8 @@ function startInitials(){
 }
 
 function endingName(){
-  if(float_ >= 400) return 'EVERYONE PAID';
+  // in the black is in the black, whatever the margin
+  if(float_ >= 0) return 'EVERYONE PAID';
   if(float_ >= -400) return 'ATE THE DIFFERENCE';
   return 'THE BIRTHDAY BOY PAID';
 }
