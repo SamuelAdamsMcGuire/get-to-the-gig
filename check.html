@@ -30,7 +30,8 @@
   .seen h2{ font-size:9px; color:#9a958a; margin:0 0 8px }
   .seen div{ padding:5px 0; border-bottom:1px solid rgba(232,228,216,.08); color:#a8a49a }
   button{ font-family:inherit; font-size:8px; background:none; border:1px solid #7a7680;
-    color:#7a7680; padding:7px 10px; margin-top:12px; cursor:pointer }
+    color:#7a7680; padding:7px 10px; margin-top:12px; margin-right:8px; cursor:pointer }
+  #csv{ border-color:#7dff7d; color:#7dff7d }
 </style>
 </head>
 <body>
@@ -51,6 +52,7 @@
 <div class="seen">
   <h2>REDEEMED AT THIS TABLE</h2>
   <div id="list">NOTHING YET</div>
+  <button id="csv">DOWNLOAD CSV</button>
   <button id="clear">CLEAR THIS LIST</button>
 </div>
 
@@ -127,6 +129,18 @@ inp.addEventListener('input', () => {
                  + r.tidy + (fresh ? '' : ' — this table has had this code before');
   render();
 });
+document.getElementById('csv').addEventListener('click', () => {
+  const all = seen();
+  if(!all.length){ alert('Nothing redeemed on this device yet.'); return; }
+  const rows = [['code','night','when']].concat(
+    all.slice().reverse().map(r => [r.code, (r.night || '').replace(/\s+/g,' ').trim(), r.when]));
+  const csv = rows.map(r => r.map(f => '"' + String(f).replace(/"/g,'""') + '"').join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv' }));
+  a.download = 'gttg-codes-' + new Date().toISOString().slice(0,10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
 document.getElementById('clear').addEventListener('click', () => {
   if(confirm('Clear the redeemed list on this device?')){
     try { localStorage.removeItem(KEY); } catch(e){}
