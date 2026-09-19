@@ -2518,7 +2518,10 @@ function startPit(){
   const stageBand = { name:'RAW POWER',
                       drums:'RP_DRUM', gtr:'RP_GTR', bass:'RP_BASS', voice:'MAURO' };
   const onStage = [stageBand.drums, stageBand.gtr, stageBand.bass, stageBand.voice];
-  const pool = ['ERIC','JASON','BILL','MARLON','REF','HAL','BAHRAM','MIKEY','DUDEL','DASH','OX','HOODY','ACTION']
+  // Eric is on the door in Frankfurt and Jason is in the van in Karlsruhe, so
+  // they are already in every tour. Keeping them here only took slots off the
+  // people who might otherwise not turn up at all.
+  const pool = ['BILL','MARLON','REF','HAL','BAHRAM','MIKEY','DUDEL','DASH','OX','HOODY','ACTION','ALLEN']
     .filter(id => id !== hero.id && !onStage.includes(id));
   const moshers = [];
   // Roman is always in the pit. The other five are whoever is about.
@@ -3865,7 +3868,8 @@ function startRun(fresh){
       line:'FOUR IN THE MORNING AT THE FISCHMARKT.', col:'#f5d020' },
   ];
 
-  const pool = ['ERIC','JASON','BILL','MARLON','REF','HAL','BAHRAM','MIKEY','DUDEL','DASH','OX','HOODY','ACTION']
+  // same list as the pit: everybody who is not already guaranteed elsewhere
+  const pool = ['BILL','MARLON','REF','HAL','BAHRAM','MIKEY','DUDEL','DASH','OX','HOODY','ACTION','ALLEN']
     .filter(id => id !== hero.id);
   const strays = [];
   [0.26, 0.52, 0.80].forEach((k, i)=>{
