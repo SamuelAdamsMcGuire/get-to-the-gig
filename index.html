@@ -6,7 +6,8 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="GET TO THE GIG">
 <meta property="og:site_name" content="Scheisse Minnelli">
-<meta property="og:description" content="Six gigs, six cities, ten days, two vans. A browser game for the BOB tour. Karlsruhe, Frankfurt, Koeln, Bremen, Berlin, Hamburg — 26.11 to 05.12.">
+<meta name="description" content="Six gigs, ten days, two vans. Finish the tour in the black and the game gives you a code for free merch at any of the six shows.">
+<meta property="og:description" content="Six gigs, ten days, two vans. Finish the tour in the black and the game gives you a code for free merch at any of the six shows.">
 <meta property="og:url" content="https://get-to-the-gig.com/">
 <meta property="og:image" content="https://get-to-the-gig.com/share.png">
 <meta property="og:image:width" content="1200">
@@ -458,6 +459,7 @@ function load(k,d){ try{ const v=localStorage.getItem(k); return v===null?d:JSON
 function save(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
 let merchCode = load('gttg_code', null);
 let poolOpen = load('gttg_pool', false);
+let gearGone = [];       // what got broken on the Berlin stairs, carried to Hamburg
 let poolPick = 0;        // 0 = skate it, 1 = carry on
 let poolJustOpen = false;  // shown once, on the Koeln debrief
 
@@ -706,6 +708,7 @@ function startTour(h){
   // a real tour is never in test mode; the picker turns it back on after this
   testMode = false;
   hero = h; gigIdx = 0; float_ = 0; ledger = [];
+  gearGone = [];                       // nothing is broken yet
   rpOwed = FLIGHT_DEBT + PASTA_FUND*3; rpPaid = 0; legOneNet = 0;
   lastResult = null;
   tourRoom = h.quirk === 'ONLY DRUMS' ? 10 : 0;   // he knows them all already
@@ -773,12 +776,15 @@ function playGig(override){
   const roomBoost = 1 + Math.max(-0.35, Math.min(0.45, tourRoom/90));
   let merch = Math.round(MERCH_BASE * (1 + hero.mouth*0.06) * (0.85 + rng()*0.3) * roomBoost);
   if(hero.quirk === 'THE GUNSLINGER') merch = Math.round(merch * 1.35);
+  // the merch box went down the stairs and did not come back up
+  const merchBusted = gearGone.indexOf(4) >= 0;
+  if(merchBusted) merch = Math.round(merch * 0.6);
 
   const van = VAN_PER_NIGHT, food = FOOD_PER_NIGHT, beds = BEDS_PER_NIGHT;
   const extra = (override && override.extra) || [];
   const items = [
     ['TAKEN ON THE DOOR', door],
-    ['BAHRAM ON MERCH', merch],
+    [merchBusted ? 'MERCH, OUT OF A HOLDALL' : 'BAHRAM ON MERCH', merch],
     ['VANS', -van],
     ['FUEL + FOOD', -food],
     ['FLOORS AND SOFAS', -beds],
@@ -3377,6 +3383,7 @@ function loadEnd(){
   const p = ll, g = GIGS[gigIdx];
   const all = LOAD.length;
   const gone = p.broken.length;
+  gearGone = p.broken.slice();     // you play Hamburg with whatever is left
   const got = p.down.length - gone;        // only the ones that arrived whole
   p.late = p.down.length < all;
   const frac = Math.max(0, 1 - p.t/p.limit);
@@ -4268,6 +4275,11 @@ function runEnd(late){
   let mult = late ? 0.66 : (0.90 + frac*0.24);
   mult -= p.bumps*0.012;
   mult += p.crew.length*0.035;
+  // whatever went down the Koepi stairs and did not come back up
+  const MERCH_BOX = 4;
+  const backlineGone = gearGone.filter(i => i !== MERCH_BOX).length;
+  mult -= backlineGone * 0.06;
+  p.backlineGone = backlineGone;
   mult += p.got*0.012;
   if(p.beat) mult += 0.06;
   if(clean) mult += 0.04;
@@ -4528,6 +4540,14 @@ function drawRun(){
     row('SETLISTS', p.got + ' OF ' + p.picks.length, p.got === 0 ? '#ff2e88' : '#e8e4d8');
     row('BAND MEMBERS FOUND', p.crew.length + ' OF 3',
         p.crew.length === 3 ? '#7fe0ff' : p.crew.length === 0 ? '#ff2e88' : '#e8e4d8');
+    // say why the door is thinner, otherwise it is money lost for no visible reason
+    if(gearGone.length){
+      const names = gearGone.map(i => LOAD[i].n.replace('THE ','')).join(' + ');
+      txtFit('PLAYING WITHOUT', 24, y, '#ff8a8a', 'left', 110);
+      y += 10;
+      wrapFit(names, W-56, 8).forEach(l => { txtFit(l, 32, y, '#ff2e88', 'left', W-56); y += 10; });
+      y += 2;
+    }
     if(p.fists) row('YOUR HANDS', 'ALL YOU NEEDED', '#7dff7d');
     else row('THE MIC STAND', p.weapon ? 'FOUND IT' : 'NEVER FOUND IT', p.weapon ? '#7dff7d' : '#ff2e88');
     if(p.swings) row('SWINGS TAKEN', p.swings + '');
@@ -7293,9 +7313,9 @@ function castList(){
     { id:'PLUSCHI', name:'PLUSCHI', sub:'RUNS THE ALTE HACKEREI',
       line:'DOOR OPEN, LIGHT ON, THERE BEFORE YOU AND AFTER YOU.' },
     { head: 'KOELN   SONIC BALLROOM' },
-    { id:'ANTJE',  name:'ANTJE',  sub:'RUNS THE SONIC BALLROOM', line:'' },
-    { id:'CHRIS',  name:'CHRIS',  sub:'RUNS THE SONIC BALLROOM', line:'' },
-    { id:'ROMAN',  name:'ROMAN',  sub:'RUNS THE SONIC BALLROOM', line:'' },
+    { id:'ANTJE',  name:'ANTJE',  sub:'RUNS THE SONIC BALLROOM', line:'WAS AT THE BAR.' },
+    { id:'CHRIS',  name:'CHRIS',  sub:'RUNS THE SONIC BALLROOM', line:'WAS DOING SOUND.' },
+    { id:'ROMAN',  name:'ROMAN',  sub:'RUNS THE SONIC BALLROOM', line:'WAS IN THE PIT.' },
     { head: 'SCHEISSE MINNELLI' },
     { id:'ERIC',    name:'ERIC',    sub:'GUITAR, THE LEFTBEHINDS',
       line:'FRANKFURT ROOTS. WORKS THE AU DOOR WITH A SCHLAPPESEPPEL IN HAND.' },
