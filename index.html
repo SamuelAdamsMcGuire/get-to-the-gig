@@ -75,6 +75,8 @@
   .bar button{ font-family:inherit; font-size:8px; background:none;
     border:1px solid var(--tape); color:var(--tape); padding:6px 8px; cursor:pointer }
 </style>
+<script data-goatcounter="https://gettothegig.goatcounter.com/count"
+        async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
 
@@ -704,7 +706,17 @@ let hero=null, gigIdx=0, float_=0, ledger=[], rpOwed=0, rpPaid=0, legOneNet=0, l
 let tourRoom=0;
 let rng = ()=>Math.random();
 
+// A plain tally of what happens, so we can see how far people get. No personal
+// data, nothing about the player, nothing about the code itself.
+function tally(name){
+  try {
+    if(window.goatcounter && window.goatcounter.count)
+      window.goatcounter.count({ path: name, title: name, event: true });
+  } catch(e){}
+}
+
 function startTour(h){
+  tally('tour-started');
   // a real tour is never in test mode; the picker turns it back on after this
   testMode = false;
   hero = h; gigIdx = 0; float_ = 0; ledger = [];
@@ -823,6 +835,7 @@ function playGig(override){
   }
   float_ += net;
   ledger.push({city:g.city, net:net});
+  tally('night-' + g.city.toLowerCase());
   lastResult = {gig:g, items:items, net:net, door:door, stat:stat};
   state = 'result'; msg = 0;
 }
@@ -2771,7 +2784,7 @@ function updatePit(){
 function pitEnd(){
   const p = pl, g = GIGS[gigIdx];
   // Eight caught unlocks the pool on the day off. Silent until it happens.
-  if(p.caught >= 8 && !poolOpen){ poolOpen = true; poolJustOpen = true; save('gttg_pool', true); }
+  if(p.caught >= 8 && !poolOpen){ poolOpen = true; poolJustOpen = true; save('gttg_pool', true); tally('pool-unlocked'); }
   const total = p.caught + p.lifted;
   const bad = p.dropped + p.trampled;
   p.grade = p.carried ? 'CARRIED OUT'
@@ -4546,11 +4559,16 @@ function drawRun(){
         p.crew.length === 3 ? '#7fe0ff' : p.crew.length === 0 ? '#ff2e88' : '#e8e4d8');
     // say why the door is thinner, otherwise it is money lost for no visible reason
     if(gearGone.length){
-      const names = gearGone.map(i => LOAD[i].n.replace('THE ','')).join(' + ');
-      txtFit('PLAYING WITHOUT', 24, y, '#ff8a8a', 'left', 110);
-      y += 10;
-      wrapFit(names, W-56, 8).forEach(l => { txtFit(l, 32, y, '#ff2e88', 'left', W-56); y += 10; });
-      y += 2;
+      // one name fits on the row; more than one needs its own line, which the
+      // closing banner now makes room for instead of being drawn on top of
+      const names = gearGone.length >= 4 ? 'ALMOST ALL OF IT'
+                  : gearGone.map(i => LOAD[i].n.replace('THE ','')).join(' + ');
+      if(gearGone.length === 1 || gearGone.length >= 4){
+        row('PLAYING WITHOUT', names, '#ff2e88');
+      } else {
+        txtFit('PLAYING WITHOUT', 24, y, '#9a958a', 'left', 120); y += 10;
+        txtFit(names, 32, y, '#ff2e88', 'left', W-56); y += 11;
+      }
     }
     if(p.fists) row('YOUR HANDS', 'ALL YOU NEEDED', '#7dff7d');
     else row('THE MIC STAND', p.weapon ? 'FOUND IT' : 'NEVER FOUND IT', p.weapon ? '#7dff7d' : '#ff2e88');
@@ -4562,18 +4580,20 @@ function drawRun(){
     row('ON THE DOOR', money(p.take), '#f5d020');
     row(GOODWILL, (p.roomDelta>=0?'+':'') + p.roomDelta, p.roomDelta<0?'#ff2e88':'#7fe0ff');
 
+    // sits under whatever the rows came to, never on top of them
+    const by = Math.max(170, Math.min(196, y + 6));
     if(p.outOfTries){
-      px(20, 170, W-40, 26, 'rgba(255,46,136,.10)');
-      px(20, 170, W-40, 1, '#ff2e88');
-      txtFit('THREE GOES. HE HAS NOT MOVED.', W/2, 176, '#ff2e88', 'center', W-48);
-      txtFit('START THE TOUR AGAIN.', W/2, 186, '#8a8690', 'center', W-48);
-      txtC(tick%54<34 ? 'PRESS SPACE' : '', 212, '#ff2e88');
+      px(20, by, W-40, 26, 'rgba(255,46,136,.10)');
+      px(20, by, W-40, 1, '#ff2e88');
+      txtFit('THREE GOES. HE HAS NOT MOVED.', W/2, by+6, '#ff2e88', 'center', W-48);
+      txtFit('START THE TOUR AGAIN.', W/2, by+16, '#8a8690', 'center', W-48);
+      txtC(tick%54<34 ? 'PRESS SPACE' : '', Math.min(232, by+38), '#ff2e88');
     } else if(p.beat){
-      px(20, 170, W-40, 26, 'rgba(245,208,32,.09)');
-      px(20, 170, W-40, 1, '#f5d020');
-      txtFit('THAT IS THE TOUR.', W/2, 176, '#f5d020', 'center', W-48);
-      txtFit('SIX GIGS. YOU DID ALL OF THEM.', W/2, 186, '#8a8690', 'center', W-48);
-      txtC(tick%54<34 ? 'PRESS SPACE' : '', 212, '#ff2e88');
+      px(20, by, W-40, 26, 'rgba(245,208,32,.09)');
+      px(20, by, W-40, 1, '#f5d020');
+      txtFit('THAT IS THE TOUR.', W/2, by+6, '#f5d020', 'center', W-48);
+      txtFit('SIX GIGS. YOU DID ALL OF THEM.', W/2, by+16, '#8a8690', 'center', W-48);
+      txtC(tick%54<34 ? 'PRESS SPACE' : '', Math.min(232, by+38), '#ff2e88');
     } else {
       px(20, 148, W-40, 24, 'rgba(125,255,125,.09)');
       px(20, 148, W-40, 1, '#7dff7d');
@@ -6521,6 +6541,7 @@ function updateSkate(act, U){
 
 function skateEnd(){
   sk.phase = 'over';
+  tally('pool-played');
   poolPick = 1;              // defaults to carrying on, never to another run
   if(sk.score > sk.high){ sk.high = sk.score; sk.newHigh = true; save('gttg_pool_best', sk.score); }
 }
@@ -7170,6 +7191,8 @@ function initialsStep(act, L, R, U, D){
       save('gttg_lastcity', p.city);
       // you only earn the free item if the tour at least broke even
       merchCode = p.cash >= 0 ? makeCode(p.city) : null;
+      tally('tour-finished');
+      if(merchCode) tally('code-issued');
       save('gttg_code', merchCode);
       saveScore({ ini: name, cash: p.cash, hero: p.hero, city: p.city,
                   ending: p.ending, code: merchCode, when: Date.now() });
